@@ -1,1 +1,6 @@
 assets/
+floorplan_parser/__pycache__/
+floorplan_parser/checkpoints/
+floorplan_parser/logs/
+floorplan_parser/results/
+floorplan_parser/models/
