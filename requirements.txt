@@ -6,3 +6,65 @@ pillow>=10.0
 tqdm>=4.66
 easyocr>=1.7.1
 pyyaml>=6.0
+fastapi
+uvicorn
+pandas
+openpyxl                 # for reading Excel files
+tqdm
+
+sqlalchemy
+psycopg2-binary          # PostgreSQL driver
+
+requests
+python-dotenv
+
+# PDF parsing
+PyMuPDF                  # (import as: fitz)
+
+# Floorplan parsing (if using opencv or pillow, uncomment)
+# opencv-python
+# pillow
+
+# Embeddings (choose at least one)
+openai                   # For OpenAI embeddings
+sentence-transformers    # For local embedding models
+
+# Vector store
+qdrant-client            # For Qdrant vector DB
+# elasticsearch>=8.0.0   # Uncomment if using Elasticsearch vector store
+
+# Utilities
+typing_extensions
+# FastAPI and web server
+fastapi
+uvicorn[standard]
+pydantic
+
+# Database
+psycopg2-binary
+sqlalchemy
+
+# Vector database
+qdrant-client
+
+# Embeddings and ML
+sentence-transformers
+torch
+torchvision
+
+# Data processing
+pandas
+numpy
+openpyxl
+
+# PDF processing
+PyMuPDF
+
+# Image processing (already required by floorplan_parser)
+opencv-python
+Pillow
+albumentations
+easyocr
+
+# Utilities
+python-multipart
