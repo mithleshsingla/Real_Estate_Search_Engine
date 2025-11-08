@@ -1,0 +1,8 @@
+torch>=2.1
+torchvision>=0.16
+numpy>=1.23
+opencv-python>=4.8
+pillow>=10.0
+tqdm>=4.66
+easyocr>=1.7.1
+pyyaml>=6.0
