@@ -5,3 +5,9 @@ floorplan_parser/logs/
 floorplan_parser/results/
 floorplan_parser/models/
 smartsense-env/
+.env
+agents/.env
+etl/__pycache__
+agents/__pycache__
+agents/agents/__pycache__/
+etl/logs/

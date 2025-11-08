@@ -68,3 +68,57 @@ easyocr
 
 # Utilities
 python-multipart
+# Core LangGraph & LangChain
+langgraph
+langchain
+langchain-core
+langchain-community
+
+# LLM Providers
+langchain-groq
+langchain-google-genai
+
+# Tools & Search
+tavily-python
+
+# FastAPI & Web
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+websockets
+
+# Streamlit
+streamlit
+
+# Database
+psycopg2-binary
+sqlalchemy
+
+# Vector Database
+qdrant-client
+
+# Embeddings & ML
+sentence-transformers
+torch
+torchvision
+
+# Data Processing
+pandas
+numpy
+openpyxl
+
+# PDF Processing
+PyMuPDF
+weasyprint
+
+# Image Processing
+opencv-python
+Pillow
+albumentations
+easyocr
+
+# Utilities
+python-dotenv
+requests
+aiofiles
