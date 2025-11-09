@@ -6,8 +6,6 @@ import requests
 import json
 import uuid
 from pathlib import Path
-import tempfile
-import os
 
 # API endpoint
 API_URL = "http://localhost:8000"
@@ -236,7 +234,7 @@ elif page == "📐 Floorplan Parser":
         
         with col1:
             st.subheader("📷 Uploaded Image")
-            st.image(uploaded_file, use_container_width=True)
+            st.image(uploaded_file, use_column_width=True)
         
         with col2:
             st.subheader("🔍 Parsed Results")
