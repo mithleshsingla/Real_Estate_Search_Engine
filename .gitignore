@@ -88,7 +88,7 @@ logs/
 
 # Reports
 reports/
-output/
+
 
 # Docker
 .dockerignore
