@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: real_estate_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - real_estate_network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: real_estate_qdrant
+    ports:
+      - "${QDRANT_PORT}:6333"
+      - "6334:6334"  # gRPC port
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - real_estate_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: real_estate_backend
+    environment:
+      # API Keys
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      TAVILY_API_KEY: ${TAVILY_API_KEY}
+      
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL}
+      
+      # Qdrant
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      QDRANT_URL: ${QDRANT_URL}
+      
+      # Models
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_MODEL: ${LLM_MODEL}
+      
+      # Paths
+      CHECKPOINT_PATH: ${CHECKPOINT_PATH}
+      ROOM_CLASSIFIER_PATH: ${ROOM_CLASSIFIER_PATH}
+      IMAGES_DIR: ${IMAGES_DIR}
+      CERTIFICATES_DIR: ${CERTIFICATES_DIR}
+      REPORTS_DIR: ${REPORTS_DIR}
+      
+      # App settings
+      DEBUG: ${DEBUG}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${BACKEND_PORT}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - backend_cache:/root/.cache  # Cache for models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - real_estate_network
+    restart: unless-stopped
+
+  # Streamlit Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: real_estate_frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "${FRONTEND_PORT}:8501"
+    depends_on:
+      - backend
+    networks:
+      - real_estate_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  backend_cache:
+    driver: local
+
+networks:
+  real_estate_network:
+    driver: bridge

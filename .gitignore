@@ -12,3 +12,107 @@ agents/__pycache__
 agents/agents/__pycache__/
 etl/logs/
 agents/tools/__pycache__/
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+smartsense-env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Data files (add exceptions if needed)
+data/
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Model files (large files)
+models/
+*.pth
+*.pkl
+*.h5
+*.pb
+checkpoints/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Reports
+reports/
+output/
+
+# Docker
+.dockerignore
+
+# Cache
+.cache/
+*.pyc
+.pytest_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Qdrant storage
+qdrant_storage/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover

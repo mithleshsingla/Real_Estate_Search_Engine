@@ -1,124 +1,69 @@
-torch
-torchvision
-numpy
-opencv-python
-pillow
-tqdm
-easyocr
-pyyaml
-fastapi
-uvicorn
-pandas
-openpyxl                 # for reading Excel files
-tqdm
-
-sqlalchemy
-psycopg2-binary          # PostgreSQL driver
-
-requests
+langchain-core==0.2.38
+langchain==0.2.16
+langchain-community==0.2.16     
+langgraph==0.2.16
+langchain-groq==0.1.9
+langchain-google-genai==1.0.10
+# ----------------------------
+# LLM Providers & Tools
+# ----------------------------
+openai
+tavily-python
 python-dotenv
+requests
+websockets
+python-multipart
 
-# PDF parsing
-PyMuPDF                  # (import as: fitz)
-
-# Floorplan parsing (if using opencv or pillow, uncomment)
-# opencv-python
-# pillow
-
-# Embeddings (choose at least one)
-openai                   # For OpenAI embeddings
-sentence-transformers    # For local embedding models
-
-# Vector store
-qdrant-client            # For Qdrant vector DB
-# elasticsearch>=8.0.0   # Uncomment if using Elasticsearch vector store
-
-# Utilities
-typing_extensions
-# FastAPI and web server
-fastapi
-uvicorn[standard]
-pydantic
-
-# Database
-psycopg2-binary
-sqlalchemy
-
-# Vector database
-qdrant-client
-
-# Embeddings and ML
+# ----------------------------
+# ML / Embeddings
+# ----------------------------
 sentence-transformers
 torch
 torchvision
 
-# Data processing
-pandas
-numpy
-openpyxl
+# ----------------------------
+# Vector Databases
+# ----------------------------
+qdrant-client
 
-# PDF processing
+# ----------------------------
+# Data Processing
+# ----------------------------
+numpy
+pandas
+openpyxl
+tqdm
 PyMuPDF
 
-# Image processing (already required by floorplan_parser)
+# ----------------------------
+# Image Processing
+# ----------------------------
 opencv-python
 Pillow
 albumentations
 easyocr
 
-# Utilities
-python-multipart
-# Core LangGraph & LangChain
-langgraph
-langchain
-langchain-core
-langchain-community
-
-# LLM Providers
-langchain-groq
-langchain-google-genai
-
-# Tools & Search
-tavily-python
-
-# FastAPI & Web
+# ----------------------------
+# Web Backend
+# ----------------------------
 fastapi
 uvicorn[standard]
 pydantic
-python-multipart
-websockets
+aiofiles
 
-# Streamlit
+# ----------------------------
+# Database
+# ----------------------------
+sqlalchemy
+psycopg2-binary
+
+# ----------------------------
+# Frontend / UI
+# ----------------------------
 streamlit
 
-# Database
-psycopg2-binary
-sqlalchemy
-
-# Vector Database
-qdrant-client
-
-# Embeddings & ML
-sentence-transformers
-torch
-torchvision
-
-# Data Processing
-pandas
-numpy
-openpyxl
-
-# PDF Processing
-PyMuPDF
+# ----------------------------
+# Optional utilities
+# ----------------------------
+typing_extensions
 weasyprint
-
-# Image Processing
-opencv-python
-Pillow
-albumentations
-easyocr
-
-# Utilities
-python-dotenv
-requests
-aiofiles
