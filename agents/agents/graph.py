@@ -1,39 +1,23 @@
 """
-Fixed LangGraph multi-agent system graph file.
-
-Changes made:
-- Robust imports for langgraph checkpoint (works with both `langgraph.checkpoint` and `langgraph_checkpoint` package layouts).
-- Safe fallback if checkpoint saver is missing (prints a clear warning and runs without persistent checkpointing).
-- Improved logging and progress printing that doesn't assume the yielded state's internal structure.
-- Small defensive changes to avoid exceptions when properties are missing from the state (e.g., executed_agents).
-- Kept original logic and node wiring intact.
-
-Usage:
-- Place this file next to your other agent modules (router, planner, sql_agent, etc.)
-- Ensure `state.AgentState` and other node functions are importable.
-- Recommended: install `langgraph==0.2.16` and `langgraph-checkpoint==1.0.12` (or match imports below).
-
+Fixed LangGraph Multi-Agent System
+Properly handles agent retries and prevents infinite loops
 """
 from datetime import datetime
 import uuid
 import logging
 from typing import Any, Dict, Tuple
+import os
 
-# LangGraph imports - support multiple possible checkpoint package layouts
+# LangGraph imports
 try:
-    # Prefer the modern namespace if available
-    from langgraph.checkpoint import SqliteSaver
-except Exception:
+    from langgraph.checkpoint.sqlite import SqliteSaver
+except ImportError:
     try:
-        # Fallback to the older/alternate package namespace
-        from langgraph_checkpoint.sqlite import SqliteSaver
-    except Exception:
-        SqliteSaver = None  # We'll handle missing saver gracefully below
+        from langgraph.checkpoint import SqliteSaver
+    except ImportError:
+        SqliteSaver = None
 
 from langgraph.graph import StateGraph, END
-from langgraph.pregel import Channel, Pregel
-
-# Your local project imports (must be available on PYTHONPATH / same package)
 from state import AgentState, IntentType
 from router import router_node
 from planner import planner_node
@@ -43,112 +27,251 @@ from web_agent import web_agent_node
 from renovation_agent import renovation_agent_node
 from report_agent import report_agent_node, memory_node
 
-# Configure logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("smartsense.graph")
+logger = logging.getLogger("multiagent.graph")
+
+# Configuration
+MAX_AGENT_RETRIES = 3  # Maximum times to retry an agent before moving on
 
 
 def should_continue_tasks(state: AgentState) -> str:
-    """Determine next node based on current task list."""
+    """
+    Determine next agent to call based on tasks and execution status
+    FIXED: Properly checks agent call counts and moves to next task
+    """
     tasks = state.get("tasks", []) or []
-    current_idx = state.get("current_task_index", 0) or 0
-
-    # If no tasks or we've exhausted them, go to aggregator
+    current_idx = state.get("current_task_index", 0)
+    agent_call_count = state.get("agent_call_count", {})
+    max_retries = state.get("max_agent_retries", MAX_AGENT_RETRIES)
+    
+    # CRITICAL FIX: Don't modify task list - it causes exponential growth
+    # Just work with the original task list
+    
+    # If current task is marked completed, move to next
+    if state.get("task_completed", False):
+        current_idx += 1
+        state["current_task_index"] = current_idx
+        state["task_completed"] = False  # Reset flag
+    
+    # No more tasks - go to aggregator
     if current_idx >= len(tasks):
+        logger.info("✓ All tasks completed, moving to aggregator")
         return "aggregate"
-
+    
     current_task = tasks[current_idx]
-    # increment index in-state for next call
-    state["current_task_index"] = current_idx + 1
-
-    # Route to appropriate agent
-    t = str(current_task).upper()
-    if "SQL" in t:
-        return "sql_agent"
-    if "RAG" in t:
-        return "rag_agent"
-    if "WEB" in t:
-        return "web_agent"
-    if "RENOVATION" in t:
-        return "renovation_agent"
-    if "REPORT" in t:
-        return "report_agent"
-
-    return "aggregate"
-
-
-def aggregate_results(state: AgentState) -> AgentState:
-    """Aggregate partial results from various agents into final_response."""
-    response_parts = []
-
-    # SQL results
-    sql_results = state.get("sql_results")
-    if sql_results and isinstance(sql_results, dict) and sql_results.get("count", 0) > 0:
-        count = sql_results.get("count", 0)
-        response_parts.append(f"Found {count} properties matching your criteria.")
-
-    # RAG results
-    rag = state.get("rag_results")
-    if rag and isinstance(rag, dict) and rag.get("answer"):
-        response_parts.append(rag.get("answer"))
-
-    # Web results
-    web = state.get("web_results")
-    if web and isinstance(web, dict) and web.get("insights"):
-        response_parts.append(f"\n**Market Insights:**\n{web.get('insights')}")
-
-    # Renovation
-    ren = state.get("renovation_estimate")
-    if ren and isinstance(ren, dict) and "total_cost" in ren:
-        cost = ren.get("total_cost")
-        response_parts.append(f"\n**Renovation Estimate:** ₹{cost:,}")
-
-    # Report
-    if state.get("report_path"):
-        response_parts.append(f"\n**Report Generated:** {state.get('report_path')}")
-
-    final_response = "\n\n".join(response_parts) if response_parts else ""
-
-    # Add citations
-    citations = state.get("citations") or []
-    if citations:
-        citations_text = "\n\n**References:**\n" + "\n".join([f"- {c}" for c in citations[:5]])
-        final_response += citations_text
-
-    state["final_response"] = final_response
-    executed = state.get("executed_agents") or []
-    if isinstance(executed, list):
-        executed.append("aggregator")
+    logger.info(f"Processing task {current_idx + 1}/{len(tasks)}: {current_task}")
+    
+    # Determine agent for current task
+    task_upper = str(current_task).upper()
+    
+    if "SQL" in task_upper:
+        agent_name = "sql_agent"
+    elif "RAG" in task_upper:
+        agent_name = "rag_agent"
+    elif "WEB" in task_upper:
+        agent_name = "web_agent"
+    elif "RENOVATION" in task_upper:
+        agent_name = "renovation_agent"
+    elif "REPORT" in task_upper:
+        agent_name = "report_agent"
     else:
-        state["executed_agents"] = ["aggregator"]
+        # Unknown task, skip to next
+        logger.warning(f"Unknown task type: {current_task}, skipping")
+        state["current_task_index"] = current_idx + 1
+        return should_continue_tasks(state)
+    
+    # Check if agent has exceeded retry limit
+    call_count = agent_call_count.get(agent_name, 0)
+    
+    if call_count >= max_retries:
+        logger.warning(f"⚠️ {agent_name} exceeded {max_retries} retries, skipping task")
+        # Move to next task
+        state["current_task_index"] = current_idx + 1
+        # Recursively check next task
+        return should_continue_tasks(state)
+    
+    logger.info(f"→ Routing to {agent_name} (attempt {call_count + 1}/{max_retries})")
+    return agent_name
 
+
+def increment_agent_count(state: AgentState, agent_name: str) -> AgentState:
+    """Helper to increment agent call counter"""
+    if "agent_call_count" not in state:
+        state["agent_call_count"] = {}
+    
+    state["agent_call_count"][agent_name] = state["agent_call_count"].get(agent_name, 0) + 1
     return state
 
 
-def create_graph(checkpoint_conn: str = ":memory:") -> Any:
-    """Create and compile the StateGraph workflow. Returns the compiled app.
-
-    If SqliteSaver is available it will be used for checkpointer; otherwise a
-    no-op (in-memory) checkpointer is used and a warning is logged.
+def wrap_agent_with_retry_check(agent_func, agent_name: str):
     """
-    workflow = StateGraph(AgentState)
+    Wraps agent function to:
+    1. Increment call counter
+    2. Mark task as completed if results are successful
+    3. Handle failures gracefully
+    """
+    def wrapped(state: AgentState) -> AgentState:
+        # Increment counter
+        state = increment_agent_count(state, agent_name)
+        
+        try:
+            # Call original agent
+            state = agent_func(state)
+            
+            # Check if agent produced results
+            has_results = False
+            
+            if agent_name == "sql_agent":
+                sql_results = state.get("sql_results")
+                has_results = sql_results and sql_results.get("count", 0) > 0
+            
+            elif agent_name == "rag_agent":
+                rag_results = state.get("rag_results")
+                has_results = rag_results and rag_results.get("answer")
+            
+            elif agent_name == "web_agent":
+                web_results = state.get("web_results")
+                has_results = web_results and web_results.get("insights")
+            
+            elif agent_name == "renovation_agent":
+                ren_results = state.get("renovation_estimate")
+                has_results = ren_results and "total_cost" in ren_results
+            
+            elif agent_name == "report_agent":
+                has_results = state.get("report_path") is not None
+            
+            # If results found, mark task as completed
+            if has_results:
+                logger.info(f"✓ {agent_name} produced results, marking task complete")
+                state["task_completed"] = True
+            else:
+                logger.warning(f"⚠️ {agent_name} produced no results, will retry or skip")
+                state["task_completed"] = False
+        
+        except Exception as e:
+            logger.error(f"✗ {agent_name} failed: {e}")
+            state["errors"].append(f"{agent_name}: {str(e)}")
+            state["task_completed"] = False
+        
+        return state
+    
+    return wrapped
 
+def aggregate_results(state: AgentState) -> AgentState:
+    """Combine partial results into a unified final response, with LLM/Tavily fallback."""
+    import httpx
+
+    parts = []
+
+    sql = state.get("sql_results")
+    if sql and isinstance(sql, dict) and sql.get("count", 0) > 0:
+        parts.append(f"Found {sql['count']} properties matching your criteria.")
+
+    rag = state.get("rag_results")
+    if rag and rag.get("answer"):
+        parts.append(rag["answer"])
+
+    web = state.get("web_results")
+    if web and web.get("insights"):
+        parts.append(f"\n**Market Insights:**\n{web['insights']}")
+
+    ren = state.get("renovation_estimate")
+    if ren and "total_cost" in ren:
+        parts.append(f"\n**Renovation Estimate:** ₹{ren['total_cost']:,}")
+
+    if state.get("report_path"):
+        parts.append(f"\n**Report Generated:** {state['report_path']}")
+
+    # --- 🌐 FALLBACK SECTION ---
+    if not parts:
+        query = state.get("user_query", "Unknown query")
+        logger.warning("⚠️ No agent produced results — triggering fallback search")
+
+        try:
+            # First try Tavily search
+            tavily_key = os.getenv("TAVILY_API_KEY")
+            tavily_results = []
+            if tavily_key:
+                r = httpx.post(
+                    "https://api.tavily.com/search",
+                    json={"query": query, "num_results": 3},
+                    headers={"Authorization": f"Bearer {tavily_key}"}
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("results"):
+                        tavily_results = [item["content"] for item in data["results"][:3]]
+                        parts.append("**Web Insights (via Tavily):**\n" + "\n".join(tavily_results))
+                        state["web_results"] = {"insights": tavily_results}
+                        state["executed_agents"].append("tavily_fallback")
+            
+            # If still empty, call LLM fallback
+            if not parts:
+                groq_key = os.getenv("GROQ_API_KEY")
+                if groq_key:
+                    r = httpx.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {groq_key}"},
+                        json={
+                            "model": "llama-3-70b-8192",
+                            "messages": [{"role": "user", "content": f"Answer this real estate query: {query}"}],
+                            "temperature": 0.7,
+                        }
+                    )
+                    if r.status_code == 200:
+                        content = r.json()["choices"][0]["message"]["content"]
+                        parts.append("**LLM Reasoning Fallback:**\n" + content)
+                        state["llm_fallback_response"] = content
+                        state["executed_agents"].append("llm_fallback")
+
+        except Exception as e:
+            logger.error(f"Fallback search failed: {e}")
+            parts.append("No direct results found, and fallback search also failed.")
+
+    # Combine all parts
+    final = "\n\n".join(parts)
+    cites = state.get("citations") or []
+    if cites:
+        final += "\n\n**References:**\n" + "\n".join([f"- {c}" for c in cites[:5]])
+
+    state["final_response"] = final
+
+    if "executed_agents" not in state:
+        state["executed_agents"] = []
+    state["executed_agents"].append("aggregator")
+
+    logger.info(f"✓ Aggregated final response ({len(final)} chars)")
+    return state
+
+def create_graph(checkpoint_conn: str = ":memory:") -> Any:
+    """Build the LangGraph workflow with proper retry logic"""
+    wf = StateGraph(AgentState)
+    
+    # Wrap agents with retry checking
+    wrapped_sql = wrap_agent_with_retry_check(sql_agent_node, "sql_agent")
+    wrapped_rag = wrap_agent_with_retry_check(rag_agent_node, "rag_agent")
+    wrapped_web = wrap_agent_with_retry_check(web_agent_node, "web_agent")
+    wrapped_renovation = wrap_agent_with_retry_check(renovation_agent_node, "renovation_agent")
+    wrapped_report = wrap_agent_with_retry_check(report_agent_node, "report_agent")
+    
     # Add nodes
-    workflow.add_node("router", router_node)
-    workflow.add_node("planner", planner_node)
-    workflow.add_node("sql_agent", sql_agent_node)
-    workflow.add_node("rag_agent", rag_agent_node)
-    workflow.add_node("web_agent", web_agent_node)
-    workflow.add_node("renovation_agent", renovation_agent_node)
-    workflow.add_node("report_agent", report_agent_node)
-    workflow.add_node("aggregate", aggregate_results)
-    workflow.add_node("memory", memory_node)
-
-    # Wiring
-    workflow.set_entry_point("router")
-    workflow.add_edge("router", "planner")
-
-    workflow.add_conditional_edges(
+    wf.add_node("router", router_node)
+    wf.add_node("planner", planner_node)
+    wf.add_node("sql_agent", wrapped_sql)
+    wf.add_node("rag_agent", wrapped_rag)
+    wf.add_node("web_agent", wrapped_web)
+    wf.add_node("renovation_agent", wrapped_renovation)
+    wf.add_node("report_agent", wrapped_report)
+    wf.add_node("aggregate", aggregate_results)
+    wf.add_node("memory", memory_node)
+    
+    # Define edges
+    wf.set_entry_point("router")
+    wf.add_edge("router", "planner")
+    
+    # After planner, route to appropriate agent
+    wf.add_conditional_edges(
         "planner",
         should_continue_tasks,
         {
@@ -157,12 +280,13 @@ def create_graph(checkpoint_conn: str = ":memory:") -> Any:
             "web_agent": "web_agent",
             "renovation_agent": "renovation_agent",
             "report_agent": "report_agent",
-            "aggregate": "aggregate",
-        },
+            "aggregate": "aggregate"
+        }
     )
-
+    
+    # After each agent, check if should continue to next task
     for agent in ["sql_agent", "rag_agent", "web_agent", "renovation_agent", "report_agent"]:
-        workflow.add_conditional_edges(
+        wf.add_conditional_edges(
             agent,
             should_continue_tasks,
             {
@@ -171,48 +295,47 @@ def create_graph(checkpoint_conn: str = ":memory:") -> Any:
                 "web_agent": "web_agent",
                 "renovation_agent": "renovation_agent",
                 "report_agent": "report_agent",
-                "aggregate": "aggregate",
-            },
+                "aggregate": "aggregate"
+            }
         )
-
-    workflow.add_edge("aggregate", "memory")
-    workflow.add_edge("memory", END)
-
-    # Checkpointer
+    
+    wf.add_edge("aggregate", "memory")
+    wf.add_edge("memory", END)
+    
+    # Create checkpoint
     checkpointer = None
-    if SqliteSaver is not None:
+    if SqliteSaver:
         try:
-            # prefer connection-string or file API if present
-            if hasattr(SqliteSaver, "from_conn_string"):
-                checkpointer = SqliteSaver.from_conn_string(checkpoint_conn)
-            elif hasattr(SqliteSaver, "from_file"):
-                # fallback
-                checkpointer = SqliteSaver.from_file(checkpoint_conn)
-            else:
-                # instantiate if a constructor exists
-                checkpointer = SqliteSaver(checkpoint_conn) if callable(SqliteSaver) else None
+            checkpointer = SqliteSaver.from_conn_string(checkpoint_conn)
         except Exception as e:
-            logger.warning("Failed to initialize SqliteSaver: %s", e)
-            checkpointer = None
-    else:
-        logger.warning("langgraph checkpoint saver not available; running without persistent checkpointing")
-
-    app = workflow.compile(checkpointer=checkpointer)
+            logger.warning(f"Failed to init SqliteSaver: {e}")
+    
+    # Compile with increased recursion limit
+    app = wf.compile(
+        checkpointer=checkpointer,
+        debug=False
+    )
+    
     return app
 
 
 def run_agent_system(query: str, session_id: str = None) -> Tuple[str, Dict[str, Any]]:
-    """Run the multi-agent workflow and return final response + full state."""
-    if not session_id:
-        session_id = str(uuid.uuid4())
-
-    initial_state = {
+    """Run the workflow end-to-end with proper initialization"""
+    session_id = session_id or str(uuid.uuid4())
+    
+    state = {
         "user_query": query,
         "session_id": session_id,
         "timestamp": datetime.now(),
         "intent": None,
         "tasks": [],
         "current_task_index": 0,
+        
+        # Initialize retry tracking
+        "agent_call_count": {},
+        "max_agent_retries": MAX_AGENT_RETRIES,
+        "task_completed": False,
+        
         "sql_results": None,
         "rag_results": None,
         "web_results": None,
@@ -225,50 +348,69 @@ def run_agent_system(query: str, session_id: str = None) -> Tuple[str, Dict[str,
         "user_preferences": {},
         "executed_agents": [],
         "errors": [],
-        "confidence_score": None,
+        "confidence_score": None
     }
-
+    
     app = create_graph()
+    config = {
+        "configurable": {"thread_id": session_id},
+        "recursion_limit": 50  # Increase from default 25
+    }
+    
+    logger.info(f"▶️ Running multi-agent workflow | session={session_id[:8]}... | query='{query}'")
+    
+    final_state = state.copy()
+    step_count = 0
 
-    config = {"configurable": {"thread_id": session_id}}
+    try:
+        for s in app.stream(state, config):
+            step_count += 1
+            if not isinstance(s, dict):
+                continue
 
-    logger.info("RUNNING MULTI-AGENT SYSTEM | session=%s | query=%s", session_id, query)
-
-    final_state = None
-    # `app.stream` yields incremental states; be defensive when reading them
-    for idx, state in enumerate(app.stream(initial_state, config)):
-        final_state = state
-        # Try to print a human-friendly progress line
-        try:
-            # many implementations yield a dict-like state where node name may be stored
-            node_repr = getattr(state, "__repr__", None)
-            print(f"[{idx}] progress... state received")
-        except Exception:
-            print(f"[{idx}] progress...")
-
-    if final_state is None:
-        logger.warning("No final state produced by the graph run")
-        return "", {}
-
-    executed_agents = final_state.get("executed_agents") or []
-    errors = final_state.get("errors") or []
-
-    logger.info("EXECUTION COMPLETE | agents=%s | errors=%s", executed_agents, errors)
-
-    return final_state.get("final_response", ""), final_state
+            for node_name, node_state in s.items():
+                logger.info(f"Step {step_count}: {node_name}")
+                if isinstance(node_state, dict):
+                    final_state.update(node_state)
+    
+    except Exception as e:
+        logger.error(f"Workflow execution failed: {e}")
+        return f"Error: {str(e)}", state
+    
+    if not final_state:
+        logger.warning("No final state generated.")
+        return "No response generated", {}
+    
+    logger.info(f"✅ Workflow completed in {step_count} steps")
+    logger.info(f"Executed agents: {final_state.get('executed_agents', [])}")
+    
+    if final_state.get("errors"):
+        logger.warning(f"Errors encountered: {final_state['errors']}")
+    
+    return final_state.get("final_response", "No response available"), final_state
 
 
 if __name__ == "__main__":
-    test_queries = [
-        "Find 3BHK apartments in Mumbai under 50 lakh",
-        "Show luxury properties near tech parks with good schools",
-        "I want to renovate a 2BHK apartment, estimate cost",
+    # Disable LangSmith for testing
+    import os
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    
+    tests = [
+        "Find apartments in Mumbai under 50 lakh"
     ]
-
-    for q in test_queries:
-        print("\n" + "#" * 60)
-        print("TEST:", q)
-        print("#" * 60)
-        resp, state = run_agent_system(q)
-        print("\n📋 RESPONSE:\n", resp)
-        print("\n")
+    
+    for q in tests:
+        print("\n" + "#" * 70)
+        print(f"TEST QUERY: {q}")
+        print("#" * 70)
+        
+        resp, st = run_agent_system(q)
+        
+        print("\n📋 RESPONSE:")
+        print(resp)
+        print("\n" + "="*70)
+        print(f"Agents executed: {st.get('executed_agents', [])}")
+        print(f"Agent call counts: {st.get('agent_call_count', {})}")
+        if st.get('errors'):
+            print(f"Errors: {st.get('errors')}")
+        print()

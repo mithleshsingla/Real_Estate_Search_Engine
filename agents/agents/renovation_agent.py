@@ -103,9 +103,17 @@ Estimate renovation cost:""")
             # Get estimate
             response = self.llm.invoke(formatted_prompt)
             
-            # Parse JSON response
+            # Parse JSON response - handle markdown code blocks
             import json
-            estimate = json.loads(response.content.strip())
+            response_text = response.content.strip()
+            
+            # Remove markdown code blocks if present
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+            estimate = json.loads(response_text)
             
             # Store results
             state["renovation_estimate"] = estimate

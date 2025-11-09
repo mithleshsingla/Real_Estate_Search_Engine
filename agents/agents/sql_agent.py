@@ -5,7 +5,7 @@ Uses Groq for fast SQL generation
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / "tools"))
-
+from datetime import datetime
 from langchain_groq import ChatGroq
 from langchain.prompts import ChatPromptTemplate
 from typing import List, Dict
@@ -61,6 +61,8 @@ Extract search parameters:""")
         try:
             query = state["user_query"]
             preferences = state.get("user_preferences", {})
+            agent_call_count = state.get("agent_call_count", {})
+            sql_attempts = agent_call_count.get("sql_agent", 0)
             
             # Extract search parameters using LLM
             formatted_prompt = self.prompt.format_messages(
@@ -74,7 +76,7 @@ Extract search parameters:""")
             import json
             params = json.loads(response.content.strip())
             
-            print(f"✓ SQL Agent: Extracted params: {params}")
+            print(f"✓ SQL Agent (attempt {sql_attempts + 1}): Extracted params: {params}")
             
             # Execute search
             results = self.tools.search_properties(**params)
@@ -86,15 +88,24 @@ Extract search parameters:""")
                 "query_params": params
             }
             
-            state["executed_agents"].append("sql_agent")
+            executed = state.get("executed_agents") or []
+            executed.append("sql_agent")
+            state["executed_agents"] = executed
             
-            print(f"✓ SQL Agent: Found {len(results)} properties")
-            
-            # Generate citations
-            for prop in results[:5]:  # Cite top 5
-                citation = self._format_citation(prop)
-                state["citations"].append(citation)
-            
+            if len(results) > 0:
+                print(f"✓ SQL Agent: Found {len(results)} properties")
+                
+                # Generate citations
+                for prop in results[:5]:  # Cite top 5
+                    citation = self._format_citation(prop)
+                    state["citations"].append(citation)
+            else:
+                print(f"⚠️ SQL Agent: No results found with params {params}")
+                
+                # REMOVED: Don't inject tasks - causes exponential growth
+                # The planner should have added RAG_SEARCH if needed
+                # Fallback will happen naturally when this task completes
+        
         except Exception as e:
             print(f"✗ SQL Agent error: {e}")
             state["errors"].append(f"SQL Agent: {str(e)}")
@@ -102,13 +113,23 @@ Extract search parameters:""")
         
         return state
     
+    from datetime import datetime
+
     def _format_citation(self, property_data: Dict) -> str:
         """Format academic citation"""
         title = property_data.get("title", "Unknown")
         location = property_data.get("location", "Unknown")
         prop_id = property_data.get("property_id", "Unknown")
-        year = property_data.get("listing_date", "").split("-")[0] if property_data.get("listing_date") else "2024"
-        
+        listing_date = property_data.get("listing_date")
+
+        # ✅ Safely extract year regardless of type
+        if isinstance(listing_date, datetime):
+            year = listing_date.year
+        elif isinstance(listing_date, str) and "-" in listing_date:
+            year = listing_date.split("-")[0]
+        else:
+            year = "2024"
+
         return f"{title} in {location} ({prop_id}, {year})"
 
 

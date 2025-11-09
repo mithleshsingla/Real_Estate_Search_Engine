@@ -161,6 +161,16 @@ class MemoryManager:
         try:
             conn = psycopg2.connect(**self.db_config)
             cursor = conn.cursor()
+            
+            # Ensure session exists first
+            cursor.execute(
+                """INSERT INTO user_sessions (session_id, preferences) 
+                   VALUES (%s, '{}') 
+                   ON CONFLICT (session_id) DO UPDATE SET last_active = NOW()""",
+                (session_id,)
+            )
+            
+            # Then insert conversation
             cursor.execute(
                 "INSERT INTO conversation_history (session_id, role, content) VALUES (%s, %s, %s)",
                 (session_id, role, content)
@@ -169,6 +179,7 @@ class MemoryManager:
             conn.close()
         except Exception as e:
             print(f"⚠ Save conversation error: {e}")
+            # Don't raise - memory errors shouldn't crash the system
     
     def get_conversation_history(self, session_id: str, limit: int = 10):
         """Get recent conversation"""

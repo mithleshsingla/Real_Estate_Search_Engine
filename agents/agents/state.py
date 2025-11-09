@@ -1,5 +1,6 @@
 """
 State definition for LangGraph multi-agent system
+WITH AGENT EXECUTION TRACKING TO PREVENT LOOPS
 """
 from typing import TypedDict, List, Dict, Optional, Annotated
 from datetime import datetime
@@ -18,6 +19,11 @@ class AgentState(TypedDict):
     intent: Optional[str]  # search, estimate, report, complex
     tasks: Annotated[List[str], operator.add]  # List of tasks to execute
     current_task_index: int
+    
+    # NEW: Agent execution tracking to prevent loops
+    agent_call_count: Dict[str, int]  # Track how many times each agent was called
+    max_agent_retries: int  # Maximum retries per agent (default: 3)
+    task_completed: bool  # Flag to indicate current task is done
     
     # Agent Results
     sql_results: Optional[Dict]  # Results from structured queries

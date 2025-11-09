@@ -6,6 +6,8 @@ import requests
 import json
 import uuid
 from pathlib import Path
+import tempfile
+import os
 
 # API endpoint
 API_URL = "http://localhost:8000"
@@ -169,27 +171,31 @@ elif page == "📤 Data Ingestion":
         
         if st.button("🚀 Start Ingestion", type="primary"):
             if excel_file:
-                with st.spinner("Processing... This may take several minutes"):
+                with st.spinner("Uploading file..."):
                     try:
-                        # Save file
-                        temp_path = Path(f"/tmp/{excel_file.name}")
-                        with open(temp_path, "wb") as f:
-                            f.write(excel_file.read())
+                        # Send file directly to backend via multipart upload
+                        excel_file.seek(0)  # Reset file pointer
+                        files = {"file": (excel_file.name, excel_file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+                        data = {"recreate_collections": str(recreate).lower()}
                         
-                        # Trigger ingestion
                         response = requests.post(
-                            f"{API_URL}/ingest",
-                            json={
-                                "excel_path": str(temp_path),
-                                "recreate_collections": recreate
-                            }
+                            f"{API_URL}/ingest-file",
+                            files=files,
+                            data=data,
+                            timeout=5  # Quick upload, processing happens in background
                         )
                         
                         if response.status_code == 200:
-                            st.success("✅ Ingestion started! Check logs for progress.")
+                            result = response.json()
+                            st.success("✅ File uploaded! Ingestion started in background.")
+                            st.info(f"📁 Processing: {result.get('filename')}")
+                            st.json(result)
                         else:
-                            st.error(f"Error: {response.json()}")
+                            st.error(f"Error: {response.status_code}")
+                            st.json(response.json())
                     
+                    except requests.exceptions.Timeout:
+                        st.warning("⏱️ Upload took too long. Try a smaller file.")
                     except Exception as e:
                         st.error(f"Failed: {str(e)}")
             else:
@@ -206,8 +212,9 @@ elif page == "📤 Data Ingestion":
                     data = response.json()
                     st.success(f"**Status:** {data['status']}")
                     st.write(f"**PostgreSQL:** {data.get('postgres', 'unknown')}")
-            except:
-                st.error("Cannot connect to API")
+                    st.write(f"**Agents:** {data.get('agents', 'unknown')}")
+            except Exception as e:
+                st.error(f"Cannot connect to API: {str(e)}")
 
 
 # ============= PAGE 3: FLOORPLAN PARSER =============
@@ -237,9 +244,16 @@ elif page == "📐 Floorplan Parser":
             if st.button("🚀 Parse Floorplan", type="primary"):
                 with st.spinner("Parsing floorplan..."):
                     try:
-                        # Call API
-                        files = {"file": uploaded_file}
-                        response = requests.post(f"{API_URL}/parse-floorplan", files=files)
+                        # Reset file pointer
+                        uploaded_file.seek(0)
+                        
+                        # Call API with proper file handling
+                        files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+                        response = requests.post(
+                            f"{API_URL}/parse-floorplan", 
+                            files=files,
+                            timeout=60
+                        )
                         
                         if response.status_code == 200:
                             data = response.json()
@@ -275,7 +289,8 @@ elif page == "📐 Floorplan Parser":
                                 st.json(parsed)
                         
                         else:
-                            st.error(f"Parsing failed: {response.json()}")
+                            st.error(f"Parsing failed: {response.status_code}")
+                            st.json(response.json())
                     
                     except Exception as e:
                         st.error(f"Error: {str(e)}")

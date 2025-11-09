@@ -11,3 +11,4 @@ etl/__pycache__
 agents/__pycache__
 agents/agents/__pycache__/
 etl/logs/
+agents/tools/__pycache__/

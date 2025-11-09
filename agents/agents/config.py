@@ -9,17 +9,40 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Base paths
-BASE_DIR = Path(__file__).parent.parent
-SMARTSENSE_DIR = BASE_DIR.parent
+BASE_DIR = Path(__file__).parent.parent  # D:\mtech\Smartsense\agents
+SMARTSENSE_DIR = BASE_DIR.parent  # D:\mtech\Smartsense
 ASSETS_DIR = SMARTSENSE_DIR / "assets"
 ETL_DIR = SMARTSENSE_DIR / "etl"
+FLOORPLAN_PARSER_DIR = SMARTSENSE_DIR / "floorplan_parser"
+
+# Data paths (from ETL)
+EXCEL_FILE = ASSETS_DIR / "Property_list.xlsx"
+IMAGES_DIR = ASSETS_DIR / "images"
+CERTIFICATES_DIR = ASSETS_DIR / "certificates"
+
+# Model paths (for floorplan parsing)
+CHECKPOINT_PATH = FLOORPLAN_PARSER_DIR / "checkpoints" / "best.pth"
+ROOM_CLASSIFIER_PATH = FLOORPLAN_PARSER_DIR / "models" / "room_classifier.pkl"
 
 # API Keys
 LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+HF_TOKEN = os.getenv("HF_TOKEN")
 LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "smartsense")
+
+# Validate required API keys
+REQUIRED_KEYS = {
+    "GROQ_API_KEY": GROQ_API_KEY,
+    "GOOGLE_API_KEY": GOOGLE_API_KEY,
+    "TAVILY_API_KEY": TAVILY_API_KEY,
+    "LANGCHAIN_API_KEY": LANGCHAIN_API_KEY
+}
+
+for key_name, key_value in REQUIRED_KEYS.items():
+    if not key_value:
+        print(f"⚠️  WARNING: {key_name} not found in environment variables!")
 
 # Database Configuration (reuse from ETL)
 POSTGRES_CONFIG = {
@@ -41,7 +64,7 @@ QDRANT_CONFIG = {
 GROQ_MODELS = {
     "router": "llama-3.3-70b-versatile",
     "sql": "llama-3.3-70b-versatile",
-    "web": "mixtral-8x7b-32768",
+    "web": "llama-3.3-70b-versatile",  # Changed from mixtral (decommissioned)
     "renovation": "llama-3.3-70b-versatile"
 }
 
@@ -84,7 +107,39 @@ RENOVATION_COSTS = {
     "luxury": {"min": 2500, "max": 4000}
 }
 
+# Floorplan Parser Configuration
+FLOORPLAN_CONFIDENCE_THRESHOLD = 0.3
+ML_CONFIDENCE_THRESHOLD = 0.6
+
 # Enable LangSmith tracing
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY
+os.environ["LANGCHAIN_API_KEY"] = LANGCHAIN_API_KEY or ""
 os.environ["LANGCHAIN_PROJECT"] = LANGCHAIN_PROJECT
+
+# Verify critical paths exist
+def verify_paths():
+    """Verify that critical paths exist"""
+    critical_paths = {
+        "Excel File": EXCEL_FILE,
+        "Images Directory": IMAGES_DIR,
+        "Certificates Directory": CERTIFICATES_DIR,
+        "Checkpoint File": CHECKPOINT_PATH,
+        "Room Classifier": ROOM_CLASSIFIER_PATH
+    }
+    
+    missing_paths = []
+    for name, path in critical_paths.items():
+        if not path.exists():
+            missing_paths.append(f"{name}: {path}")
+    
+    if missing_paths:
+        print("\n⚠️  WARNING: Missing paths detected:")
+        for missing in missing_paths:
+            print(f"  - {missing}")
+        print("\nSome features may not work correctly.\n")
+    else:
+        print("✓ All critical paths verified\n")
+
+# Run verification on import (can be disabled)
+if os.getenv("VERIFY_PATHS", "true").lower() == "true":
+    verify_paths()
